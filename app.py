@@ -1,64 +1,49 @@
-from flask import Flask, jsonify, request
-from werkzeug.utils import secure_filename
-import gen_ai
+import streamlit as st
+import google.generativeai as genai
 import os
-from flask_cors import CORS
-import re
+import requests
+
+os.environ['API_KEY'] = "AIzaSyAPOGkZ9DKYNvHpPffmPDEuAqYM9TCDKqA"
+genai.configure(api_key=os.environ['API_KEY'])
+pagamento_google = "https://drive.google.com/file/d/1wN3Rgr-3MSW6VBQw64svVsLhSa_SGcmL/view?usp=drive_link"
+
+st.title('Análise de editais')
+
+st.text("Essa ferramenta busca analisar se o Termo de Referência submetido possui os requisitos mínimos propostos pela Lei nº 14.133/2021.")
+
+st.header("Upload Termo de Referência")
+uploaded_file = st.file_uploader("Termo de Referência", type=['pdf'])
 
 
-app = Flask(__name__)
-UPLOAD_FOLDER = './uploads'
-ALLOWED_EXTENSIONS = {'pdf'}
-CORS(app)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+if uploaded_file is not None:
+    temp_dir = "temp_uploads"
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
 
-@app.after_request
-def after_request(response):
-  response.headers.add('Access-Control-Allow-Origin', '*')
-  response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-  response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-  return response
+    temp_file_path = os.path.join(temp_dir, uploaded_file.name)
 
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    with open(temp_file_path, 'wb') as f:
+        f.write(uploaded_file.getbuffer())
 
-def validate_filename(filename):
-    pattern = r'^[a-z0-9]+(-[a-z0-9]+)*$'  # Matches lowercase alphanumeric and hyphens with no leading or trailing hyphens
-    return bool(re.match(pattern, filename))
+    with st.spinner('Processando...'):
+        uploaded_file_gemini = genai.upload_file(path=temp_file_path, display_name = uploaded_file.name)
+        st.spinner("Analisando:")
 
-@app.route('/uploads', methods = ['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        return jsonify({'message': 'no file in part request'}), 400
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        list_criterios = ['Definição do objeto', 'Prazo de contrato', 'Justificativa da contratação',
+                          'Descrição da solução', 'Requisitos da contratação', 'Modelo de execução',
+                          'Modelo de gestão do contrato',
+                          'Pagamento', 'Seleção do fornecedor', 'Valor da contratação', 'Adequação orçamentária',
+                          'Habilitação técnica',
+                          'Habilitação econômico-financeira', 'microempresas e empresas de pequeno porte']
 
-    file = request.files['file']
+        analysis = model.generate_content([uploaded_file_gemini, f"Analise se os seguintes critérios '{list_criterios}' no documento submetido estão presentes e apresente o resultado como tópicos em português brasileiro"]
+                                          , generation_config=genai.GenerationConfig(temperature=1.5))
 
-    if file.filename == '':
-        return jsonify({'message': 'no file selected'})
 
-    if file and allowed_file(file.filename):
-        file_name = secure_filename(file.filename)
-        file.save(os.path.join(app.config['UPLOAD_FOLDER'], file_name))
-        path = f'./uploads/{file_name}'
-        resume = gen_ai.analise_tr(path)
-        return resume
 
-    else:
-        return jsonify({'Erro': 'no analysis perfomed'})
+    st.subheader("Resultados")
+    st.write(analysis.text)
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
 
-'''def index():
-    if request.method == 'POST':
-        data = request.get_json()
-        path = data['path']
-        resultado = main.analise_tr(path)
-        return jsonify({'resultado' : resultado})
-    if request.method == 'GET':
-        return jsonify({'Parâmetros': main.list_criterios})
-    else:
-        return jsonify({'mensagem': 'método não permitido'})'''
 
