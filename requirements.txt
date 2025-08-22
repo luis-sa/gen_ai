@@ -3,4 +3,3 @@ protobuf~=5.28.2
 gunicorn==22.0.0
 flask
 jsonify
-werkzeug.utils
